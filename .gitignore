@@ -1,0 +1,12 @@
+.idea
+*.epub
+*.mobi
+*.txt
+*.exe
+*.tmp
+*.zio
+kaf-cli-*
+samples
+.aider*
+kaf-mcp
+main
