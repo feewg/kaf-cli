@@ -93,14 +93,75 @@ curl -sSL https://github.com/feewg/kaf-cli/releases/download/mcp-1.0.0/install-m
 - `separate_chapter_number`: 是否分离章节序号
 - `custom_css_file`: 自定义 CSS 文件路径
 
-### 2. kaf_batch_convert - 批量文件转换
+**新增参数（v1.x）：**
+- `extended_css`: 内联扩展 CSS 样式代码
+- `css_variables`: CSS 变量定义（格式：`--var1:value1;--var2:value2`）
+- `chapter_header_image`: 章节页眉图片路径（所有章节相同）
+- `chapter_header_image_folder`: 章节页眉图片文件夹（按章节名匹配）
+- `chapter_header_image_position`: 页眉图片位置 (`left`, `center`, `right`)
+- `chapter_header_image_height`: 页眉图片高度（如 `100px`, `2em`）
+- `chapter_header_image_width`: 页眉图片宽度（如 `50%`, `200px`）
+- `chapter_header_image_mode`: 图片模式 (`single`, `folder`)
 
-批量转换多个 TXT 文件。
+### 2. kaf_batch_convert - 文件夹批量转换（新增）
+
+批量转换文件夹中的 TXT 小说文件，自动识别配套资源（封面、页眉图片等）。
 
 **参数：**
-- `files` (必填): TXT 文件路径列表
+- `folder` (必填): 小说文件夹路径
 - `format`: 输出格式
-- `author`: 默认作者
+- `output_folder`: 输出文件夹（默认使用输入文件夹）
+- `font`: 嵌入字体文件路径（全局）
+- `indent`: 段落缩进字数（全局）
+- `align`: 标题对齐方式（全局）
+- `bottom`: 段落间距（全局）
+- `line_height`: 行高（全局）
+- `lang`: 语言设置（全局）
+- `separate_chapter_number`: 是否分离章节序号（全局）
+- `custom_css_file`: 自定义 CSS 文件路径（全局）
+- `extended_css`: 内联扩展 CSS 样式（全局）
+- `css_variables`: CSS 变量定义（全局）
+
+**文件夹组织结构：**
+
+支持两种组织方式：
+
+**方式一：单文件夹模式（推荐批量处理）**
+```
+novels/
+├── cover.jpg              # 通用封面（所有书籍使用）
+├── header.png             # 通用页眉（所有书籍使用）
+├── 斗破苍穹.txt
+├── 武动乾坤.txt
+└── ...
+```
+
+**方式二：子文件夹模式（每本书独立）**
+```
+novels/
+├── 斗破苍穹/
+│   ├── book.txt           # 小说文件（任意命名）
+│   ├── cover.jpg          # 专属封面
+│   └── header.png         # 专属页眉
+├── 武动乾坤/
+│   ├── book.txt
+│   ├── cover.jpg
+│   └── headers/           # 章节页眉图片文件夹
+│       ├── 第一章.png
+│       └── ...
+└── ...
+```
+
+**资源文件命名规则：**
+- **通用封面**：`cover.jpg`, `cover.png`, `封面.jpg` 等
+- **通用页眉**：`header.jpg`, `header.png`, `页眉.jpg` 等
+- **页眉文件夹**：`headers/`, `header/`, `页眉/`
+- **书名相关命名**：`《书名》封面.jpg`, `《书名》页眉.png` 等（优先级高于通用命名）
+
+**自动匹配优先级：**
+1. 子文件夹内资源优先于父文件夹通用资源
+2. 书名相关命名优先于通用命名
+3. 精确匹配优先于模糊匹配
 
 ### 3. kaf_get_job - 获取任务状态
 
@@ -172,12 +233,32 @@ curl -sSL https://github.com/feewg/kaf-cli/releases/download/mcp-1.0.0/install-m
 
 ```
 使用 kaf_batch_convert 工具批量转换：
-- files:
-  - /path/to/book1.txt
-  - /path/to/book2.txt
-  - /path/to/book3.txt
-- format: mobi
-- author: 默认作者
+- folder: /path/to/novels
+- format: epub
+- align: center
+- separate_chapter_number: true
+```
+
+### 使用章节页眉图片
+
+```
+使用 kaf_convert 工具转换并添加页眉图片：
+- filename: /path/to/novel.txt
+- bookname: 我的小说
+- chapter_header_image: /path/to/header.png
+- chapter_header_image_position: center
+- chapter_header_image_height: 150px
+```
+
+或使用文件夹模式匹配各章节不同图片：
+
+```
+使用 kaf_convert 工具转换并添加章节页眉：
+- filename: /path/to/novel.txt
+- bookname: 我的小说
+- chapter_header_image_folder: /path/to/headers/
+- chapter_header_image_mode: folder
+- chapter_header_image_position: center
 ```
 
 ### 使用配置预设

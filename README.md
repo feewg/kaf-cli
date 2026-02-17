@@ -14,6 +14,8 @@
 - 卷名使用精美的双线边框样式
 - 章节序号和标题分离显示（可选）
 - 自定义 CSS 样式支持
+- 扩展 CSS 样式支持（内联 CSS 代码、CSS 变量）
+- 章节页眉图片支持（单图片/按章节名匹配）
 - 智能 HTML 标签处理（保留 epub 支持的标签，转义其他标签）
 - 自定义标题对齐方式
 - 段落自动识别
@@ -41,8 +43,44 @@
 1. 等转换完，目录下会生成epub、azw3、mobi文件
    - mobi格式需要有kindlegen才会生成(windows、mac版本已经自带)
 1. 自定义封面功能
-   在拖拽模式下, 如果目录下有`cover.png`文件会自动添加为封面、支持jpg、png格式， 如果需要指定其它文件或jpg格式需要使用命令行模式   
+   在拖拽模式下, 如果目录下有`cover.png`文件会自动添加为封面、支持jpg、png格式， 如果需要指定其它文件或jpg格式需要使用命令行模式
 1. 其它自定义功能请用命令行模式
+
+### 批量转换文件夹
+支持批量转换文件夹中的所有txt小说文件，自动识别配套资源（封面、页眉图片等）。
+
+```shell
+# 批量转换文件夹中的所有txt文件
+kaf-cli -batch ./novels/
+```
+
+**支持的文件夹结构：**
+
+**单文件夹模式**（所有书籍共用通用资源）：
+```
+novels/
+├── cover.jpg              # 通用封面（所有书籍使用）
+├── header.png             # 通用页眉（所有书籍使用）
+├── 斗破苍穹.txt
+├── 武动乾坤.txt
+└── ...
+```
+
+**子文件夹模式**（每本书独立配置）：
+```
+novels/
+├── 斗破苍穹/
+│   ├── book.txt           # 小说文件
+│   ├── cover.jpg          # 专属封面
+│   └── header.png         # 专属页眉
+└── ...
+```
+
+**资源命名规则：**
+- 通用封面：`cover.jpg`, `cover.png`, `封面.jpg`
+- 通用页眉：`header.jpg`, `header.png`, `页眉.jpg`
+- 页眉文件夹：`headers/`, `header/`, `页眉/`
+- 书名相关：`《书名》封面.jpg`（优先级高于通用命名）
 
 ### 效果
 ![效果图片](assets/2021-06-20_12-13-34.png)
@@ -97,6 +135,26 @@ Usage of kaf-cli:
         未知章节默认名称 (default "章节正文")
   -volume-match string
         卷匹配规则,设置为false可以禁用卷识别 (default "^第[0-9一二三四五六七八九十零〇百千两 ]+[卷部]")
+  
+  # 扩展CSS样式支持（新增）
+  -extended-css string
+        内联扩展CSS样式（直接传入CSS代码）
+  -css-variables string
+        CSS变量定义，格式: --var1:value1;--var2:value2
+  
+  # 章节页眉图片支持（新增）
+  -chapter-header-image string
+        章节页眉图片路径，所有章节显示相同图片
+  -chapter-header-image-folder string
+        章节页眉图片文件夹，按章节名匹配图片
+  -chapter-header-image-position string
+        页眉图片位置: left, center, right (default "center")
+  -chapter-header-image-height string
+        页眉图片高度，如: 100px, 2em (default "auto")
+  -chapter-header-image-width string
+        页眉图片宽度，如: 50%, 200px (default "100%")
+  -chapter-header-image-mode string
+        图片模式: single(所有章节相同), folder(按章节名匹配) (default "single")
 ```
 
 >PS: 在darwin(mac、osx)上`-tips`参数要设置为false的方法 `kaf-cli -filename 小说.txt -tips=0`
@@ -132,6 +190,7 @@ kaf-cli 支持通过 CSS 文件自定义样式，可以覆盖默认的样式设�
 - `h3.title span.chapter-number` - 章节序号样式
 - `.content` - 正文段落样式
 - `body` - 整体样式
+- `.chapter-header-image` - 章节页眉图片样式（新增）
 
 #### 使用示例
 
@@ -167,6 +226,70 @@ kaf-cli -filename 小说.txt --custom-css-file mystyle.css
 - 修改字体大小：`h3.title { font-size: 1.5em; }`
 - 修改缩进：`.content { text-indent: 4em; }`
 - 修改边距：`body { margin: 2em; }`
+
+### 扩展 CSS 样式支持（新增）
+
+除了使用外部 CSS 文件，kaf-cli 还支持直接传入 CSS 代码和 CSS 变量。
+
+#### 使用内联 CSS
+```shell
+kaf-cli -filename 小说.txt --extended-css "h3.title { color: red; } .content { font-size: 1.2em; }"
+```
+
+#### 使用 CSS 变量
+```shell
+kaf-cli -filename 小说.txt --css-variables "--main-color:#333;--title-size:1.8em"
+```
+
+然后在自定义 CSS 中引用变量：
+```css
+h3.title {
+    color: var(--main-color);
+    font-size: var(--title-size);
+}
+```
+
+### 章节页眉图片（新增）
+
+支持在每个章节的页眉添加装饰图片或章节插图。
+
+#### 单图片模式（所有章节相同）
+```shell
+kaf-cli -filename 小说.txt --chapter-header-image header.png
+```
+
+#### 文件夹匹配模式（按章节名自动匹配）
+准备图片文件夹，图片命名为章节名或章节数字：
+```
+headers/
+├── 第一章.png
+├── 第二章.jpg
+├── 3.png
+└── ...
+```
+
+然后执行：
+```shell
+kaf-cli -filename 小说.txt --chapter-header-image-folder ./headers/ --chapter-header-image-mode folder
+```
+
+#### 自定义图片样式
+```shell
+# 设置图片位置和大小
+kaf-cli -filename 小说.txt \
+  --chapter-header-image header.png \
+  --chapter-header-image-position center \
+  --chapter-header-image-height 150px \
+  --chapter-header-image-width 80%
+```
+
+#### 参数说明
+- `--chapter-header-image`: 页眉图片路径
+- `--chapter-header-image-folder`: 图片文件夹路径
+- `--chapter-header-image-position`: 图片位置（left/center/right，默认center）
+- `--chapter-header-image-height`: 图片高度（如100px、2em，默认auto）
+- `--chapter-header-image-width`: 图片宽度（如50%、200px，默认100%）
+- `--chapter-header-image-mode`: 匹配模式（single/folder，默认single）
 
 ### 自定义章节匹配规则
 >以下全部示例都可以自动识别，不需要自己设定标题格式了， 一般用上用上面的例子就行了

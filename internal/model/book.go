@@ -55,6 +55,19 @@ type Book struct {
 	Format                 string    // 书籍格式
 	SeparateChapterNumber  bool      // 是否分离章节序号和标题样式
 	CustomCSSFile          string    // 用户自定义 CSS 文件路径
+	
+	// 扩展CSS样式支持
+	ExtendedCSS            string    // 内联扩展CSS样式（直接写入的CSS代码）
+	CSSVariables           string    // CSS变量定义
+	
+	// 章节页眉图片支持
+	ChapterHeaderImage         string // 章节页眉图片路径（通用图片）
+	ChapterHeaderImagePosition string // 图片位置: left, center, right (default: center)
+	ChapterHeaderImageHeight   string // 图片高度 (default: auto)
+	ChapterHeaderImageWidth    string // 图片宽度 (default: 100%)
+	ChapterHeaderImageMode     string // 图片模式: single(所有章节相同), folder(从文件夹按章节名匹配)
+	ChapterHeaderImageFolder   string // 图片文件夹路径（当Mode为folder时使用）
+	
 	Decoder                *encoding.Decoder
 	PageStylesFile         string
 	Reg                    *regexp.Regexp
