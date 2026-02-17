@@ -58,30 +58,30 @@ jobs:
           mkdir -p build
           go mod tidy
           
-          GOOS=linux   GOARCH=amd64   go build -ldflags "$FLAG" -o build/linux-amd64/kaf-cli       cmd/cli/main.go
-          GOOS=linux   GOARCH=arm64   go build -ldflags "$FLAG" -o build/linux-arm64/kaf-cli       cmd/cli/main.go
-          GOOS=linux   GOARCH=loong64 go build -ldflags "$FLAG" -o build/linux-loong64/kaf-cli     cmd/cli/main.go
-          GOOS=darwin  GOARCH=amd64   go build -ldflags "$FLAG" -o build/darwin-amd64/kaf-cli      cmd/cli/main.go
-          GOOS=darwin  GOARCH=arm64   go build -ldflags "$FLAG" -o build/darwin-arm64/kaf-cli      cmd/cli/main.go
-          GOOS=wasip1  GOARCH=wasm    go build -ldflags "$FLAG" -o build/wasm-wasip1/kaf-cli.wasm  cmd/cli/main.go
+          GOOS=linux   GOARCH=amd64   go build -ldflags "$FLAG" -o build/linux-amd64/kaf-cli       ./cmd/cli
+          GOOS=linux   GOARCH=arm64   go build -ldflags "$FLAG" -o build/linux-arm64/kaf-cli       ./cmd/cli
+          GOOS=linux   GOARCH=loong64 go build -ldflags "$FLAG" -o build/linux-loong64/kaf-cli     ./cmd/cli
+          GOOS=darwin  GOARCH=amd64   go build -ldflags "$FLAG" -o build/darwin-amd64/kaf-cli      ./cmd/cli
+          GOOS=darwin  GOARCH=arm64   go build -ldflags "$FLAG" -o build/darwin-arm64/kaf-cli      ./cmd/cli
+          GOOS=wasip1  GOARCH=wasm    go build -ldflags "$FLAG" -o build/wasm-wasip1/kaf-cli.wasm  ./cmd/cli
           /home/runner/go_bin/rsrc -arch amd64 -manifest kaf-cli.exe.manifest -ico ./assets/kaf.ico -o kaf-cli.syso
-          GOOS=windows GOARCH=386     go build -ldflags "$FLAG" -o build/windows-386/kaf-cli.exe   cmd/cli/main.go
-          GOOS=windows GOARCH=amd64   go build -ldflags "$FLAG" -o build/windows-amd64/kaf-cli.exe cmd/cli/main.go
+          GOOS=windows GOARCH=386     go build -ldflags "$FLAG" -o build/windows-386/kaf-cli.exe   ./cmd/cli
+          GOOS=windows GOARCH=amd64   go build -ldflags "$FLAG" -o build/windows-amd64/kaf-cli.exe ./cmd/cli
 
       - name: Build MCP
         run: |
           FLAG="-s -w -X main.secret=${{ secrets.API_SECRET }} -X main.measurement=${{ secrets.MEASUREMENT }} -X main.version=${{ env.VERSION }}"
           go mod tidy
           
-          GOOS=linux   GOARCH=amd64   go build -ldflags "$FLAG" -o build/linux-amd64/kaf-mcp       cmd/mcp/main.go
-          GOOS=linux   GOARCH=arm64   go build -ldflags "$FLAG" -o build/linux-arm64/kaf-mcp       cmd/mcp/main.go
-          GOOS=linux   GOARCH=loong64 go build -ldflags "$FLAG" -o build/linux-loong64/kaf-mcp     cmd/mcp/main.go
-          GOOS=darwin  GOARCH=amd64   go build -ldflags "$FLAG" -o build/darwin-amd64/kaf-mcp      cmd/mcp/main.go
-          GOOS=darwin  GOARCH=arm64   go build -ldflags "$FLAG" -o build/darwin-arm64/kaf-mcp      cmd/mcp/main.go
-          GOOS=wasip1  GOARCH=wasm    go build -ldflags "$FLAG" -o build/wasm-wasip1/kaf-mcp.wasm  cmd/mcp/main.go
+          GOOS=linux   GOARCH=amd64   go build -ldflags "$FLAG" -o build/linux-amd64/kaf-mcp       ./cmd/mcp
+          GOOS=linux   GOARCH=arm64   go build -ldflags "$FLAG" -o build/linux-arm64/kaf-mcp       ./cmd/mcp
+          GOOS=linux   GOARCH=loong64 go build -ldflags "$FLAG" -o build/linux-loong64/kaf-mcp     ./cmd/mcp
+          GOOS=darwin  GOARCH=amd64   go build -ldflags "$FLAG" -o build/darwin-amd64/kaf-mcp      ./cmd/mcp
+          GOOS=darwin  GOARCH=arm64   go build -ldflags "$FLAG" -o build/darwin-arm64/kaf-mcp      ./cmd/mcp
+          GOOS=wasip1  GOARCH=wasm    go build -ldflags "$FLAG" -o build/wasm-wasip1/kaf-mcp.wasm  ./cmd/mcp
           /home/runner/go_bin/rsrc -arch amd64 -manifest kaf-cli.exe.manifest -ico ./assets/kaf.ico -o kaf-mcp.syso
-          GOOS=windows GOARCH=386     go build -ldflags "$FLAG" -o build/windows-386/kaf-mcp.exe   cmd/mcp/main.go
-          GOOS=windows GOARCH=amd64   go build -ldflags "$FLAG" -o build/windows-amd64/kaf-mcp.exe cmd/mcp/main.go
+          GOOS=windows GOARCH=386     go build -ldflags "$FLAG" -o build/windows-386/kaf-mcp.exe   ./cmd/mcp
+          GOOS=windows GOARCH=amd64   go build -ldflags "$FLAG" -o build/windows-amd64/kaf-mcp.exe ./cmd/mcp
 
       - name: Package CLI
         run: |
