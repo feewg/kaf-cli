@@ -36,10 +36,27 @@ func validateInput(book *model.Book) error {
 	return nil
 }
 
+// cleanFilenamePrefix 清理文件名前缀
+// 处理格式如: soushu2024@filename.txt -> filename.txt
+// 即去除 @ 符号及其前面的内容
+func cleanFilenamePrefix(filename string) string {
+	// 查找最后一个 @ 符号的位置
+	if idx := strings.LastIndex(filename, "@"); idx != -1 {
+		// 确保 @ 后面还有内容（即不是以 @ 结尾）
+		if idx+1 < len(filename) {
+			return filename[idx+1:]
+		}
+	}
+	return filename
+}
+
 func parseBookInfoFromFilename(book *model.Book) {
+	// 清理文件名前缀（如 soushu2024@ 等格式）
+	cleanedFilename := cleanFilenamePrefix(book.Filename)
+
 	reg, _ := regexp.Compile(`《(.*)》.*作者[：:](.*).txt`)
-	if reg.MatchString(book.Filename) {
-		group := reg.FindAllStringSubmatch(book.Filename, -1)
+	if reg.MatchString(cleanedFilename) {
+		group := reg.FindAllStringSubmatch(cleanedFilename, -1)
 		if len(group) == 1 && len(group[0]) >= 3 {
 			if book.Bookname == "" {
 				book.Bookname = group[0][1]
@@ -50,7 +67,7 @@ func parseBookInfoFromFilename(book *model.Book) {
 		}
 	}
 	if book.Bookname == "" {
-		book.Bookname = strings.Split(filepath.Base(book.Filename), ".")[0]
+		book.Bookname = strings.Split(filepath.Base(cleanedFilename), ".")[0]
 	}
 }
 
