@@ -4,10 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/feewg/kaf-cli/internal/config"
 	"github.com/feewg/kaf-cli/internal/converter"
 	"github.com/feewg/kaf-cli/internal/core"
 	"github.com/feewg/kaf-cli/internal/model"
@@ -21,7 +23,12 @@ var (
 	version     string
 )
 
-func NewBookArgs() *model.Book {
+// CLIConfig 命令行全局配置
+type CLIConfig struct {
+	ConfigPath string // 指定的配置文件路径
+}
+
+func NewBookArgs(cliCfg *CLIConfig) *model.Book {
 	var book model.Book
 	flag.StringVar(&book.Filename, "filename", "", "txt 文件名")
 	flag.StringVar(&book.Bookname, "bookname", "", "书名: 默认为txt文件名")
@@ -58,24 +65,43 @@ func NewBookArgs() *model.Book {
 	flag.StringVar(&book.ChapterHeaderImageWidth, "chapter-header-image-width", "100%", "页眉图片宽度，如: 50%, 200px")
 	flag.StringVar(&book.ChapterHeaderImageMode, "chapter-header-image-mode", "single", "图片模式: single(所有章节相同), folder(按章节名匹配)")
 
+	// YAML 配置文件支持
+	flag.StringVar(&cliCfg.ConfigPath, "config", "", "YAML 配置文件路径，自动识别时可不指定")
+
 	flag.Parse()
 	return &book
 }
 
 func printHelp(version string) {
 	fmt.Println("错误: 文件名不能为空")
-	fmt.Println("软件版本: \t", version)
-	fmt.Println("简洁模式: \t把文件拖放到kaf-cli上")
+	fmt.Println("软件版本: 	", version)
+	fmt.Println("简洁模式: 	把文件拖放到kaf-cli上")
 	fmt.Println("命令行简单模式: kaf-cli ebook.txt")
 	fmt.Println("\n以下为kaf-cli的全部参数")
-	NewBookArgs()
+	var cliCfg CLIConfig
+	NewBookArgs(&cliCfg)
 	flag.PrintDefaults()
+	fmt.Println("\nYAML 配置支持:")
+	fmt.Println("  1. 使用 -config 指定配置文件: kaf-cli -config kaf.yaml")
+	fmt.Println("  2. 自动识别: 将 kaf.yaml 放在txt文件同级目录下会自动加载")
+	fmt.Println("  3. 生成示例配置: kaf-cli -example-config")
 	if runtime.GOOS == "windows" {
 		time.Sleep(time.Second * 10)
 	}
 }
 
 func main() {
+	// 检查是否是生成示例配置
+	if len(os.Args) == 2 && os.Args[1] == "-example-config" {
+		if err := os.WriteFile("kaf.yaml", []byte(config.ExampleConfig()), 0644); err != nil {
+			fmt.Printf("生成示例配置失败: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Println("已生成示例配置文件: kaf.yaml")
+		fmt.Println("请根据需要进行修改，然后放在txt文件同级目录下即可自动识别")
+		return
+	}
+
 	// 检查是否是批量处理模式
 	if len(os.Args) == 3 && os.Args[1] == "-batch" {
 		batchFolder := os.Args[2]
@@ -85,15 +111,47 @@ func main() {
 
 	var book *model.Book
 	var err error
+	var yamlCfg *config.Config
+	var cliCfg CLIConfig
+
 	if len(os.Args) == 2 && strings.HasSuffix(os.Args[1], ".txt") {
-		book, err = model.NewBookSimple(os.Args[1])
+		// 简洁模式: kaf-cli ebook.txt
+		// 自动查找配置文件
+		filename := os.Args[1]
+		yamlCfg, _, _ = config.AutoLoadForFile(filename)
+		book, err = model.NewBookSimple(filename)
 		if err != nil {
 			fmt.Printf("错误: %s\n", err.Error())
 			os.Exit(1)
 		}
+		// 应用 YAML 配置
+		if yamlCfg != nil {
+			yamlCfg.MergeWithBook(book)
+			fmt.Printf("已加载配置文件\n")
+		}
 	} else {
-		book = NewBookArgs()
+		// 命令行模式
+		book = NewBookArgs(&cliCfg)
+
+		// 如果指定了配置文件，加载它
+		if cliCfg.ConfigPath != "" {
+			yamlCfg, err = config.LoadFromFile(cliCfg.ConfigPath)
+			if err != nil {
+				fmt.Printf("加载配置文件失败: %s\n", err.Error())
+				os.Exit(1)
+			}
+			yamlCfg.MergeWithBook(book)
+			fmt.Printf("已加载配置文件: %s\n", cliCfg.ConfigPath)
+		} else if book.Filename != "" {
+			// 如果没有指定配置，但指定了文件名，尝试自动查找
+			yamlCfg, cfgPath, err := config.AutoLoadForFile(book.Filename)
+			if err == nil && yamlCfg != nil {
+				yamlCfg.MergeWithBook(book)
+				fmt.Printf("已加载配置文件: %s\n", cfgPath)
+			}
+		}
 	}
+
 	if err := core.Check(book, version); err != nil {
 		if err.Error() == "不是txt文件" {
 			fmt.Printf("错误: %s\n", err.Error())
@@ -143,6 +201,17 @@ func runBatchConvert(folder string) {
 	for i, info := range books {
 		fmt.Printf("[%d/%d] 正在转换: %s\n", i+1, len(books), info.Book.Bookname)
 
+		// 应用从文件夹扫描时加载的配置（类似于通用封面的逻辑）
+		if info.Config != nil {
+			info.Config.MergeWithBook(info.Book)
+		}
+
+		// 尝试加载书籍同目录的 YAML 配置（优先级高于文件夹通用配置）
+		if yamlCfg, cfgPath, err := config.AutoLoadForFile(info.Book.Filename); err == nil && yamlCfg != nil {
+			yamlCfg.MergeWithBook(info.Book)
+			fmt.Printf("  📄 配置: %s\n", filepath.Base(cfgPath))
+		}
+
 		if err := convertBook(info.Book, version); err != nil {
 			fmt.Printf("  ❌ 失败: %s\n", err.Error())
 			failCount++
@@ -154,4 +223,22 @@ func runBatchConvert(folder string) {
 
 	fmt.Println("\n=================================")
 	fmt.Printf("批量转换完成！成功: %d, 失败: %d, 总计: %d\n", successCount, failCount, len(books))
+}
+
+// convertBook 执行单本书的转换
+func convertBook(book *model.Book, version string) error {
+	if err := core.Check(book, version); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	if err := core.Parse(book); err != nil {
+		return fmt.Errorf("parsing failed: %w", err)
+	}
+
+	conv := converter.Dispatcher{Book: book}
+	if err := conv.Convert(); err != nil {
+		return fmt.Errorf("conversion failed: %w", err)
+	}
+
+	return nil
 }

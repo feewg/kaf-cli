@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/feewg/kaf-cli/internal/config"
 	"github.com/feewg/kaf-cli/internal/converter"
 	"github.com/feewg/kaf-cli/internal/core"
 	"github.com/feewg/kaf-cli/internal/model"
@@ -134,6 +135,13 @@ func (s *ConverterService) registerConvertTool(srv *server.MCPServer) {
 		mcpgo.WithString("chapter_header_image_mode",
 			mcpgo.Description("图片模式: single(所有章节相同), folder(按章节名匹配)，默认single"),
 		),
+		// YAML 配置支持
+		mcpgo.WithString("config_path",
+			mcpgo.Description("YAML 配置文件路径，自动识别时可不指定"),
+		),
+		mcpgo.WithString("config_content",
+			mcpgo.Description("YAML 配置内容（直接传入配置文本，优先级高于 config_path）"),
+		),
 	)
 
 	srv.AddTool(tool, s.handleConvert)
@@ -186,6 +194,16 @@ func (s *ConverterService) registerBatchConvertTool(srv *server.MCPServer) {
 		mcpgo.WithString("css_variables",
 			mcpgo.Description("全局CSS变量定义"),
 		),
+		// YAML 配置支持
+		mcpgo.WithString("config_path",
+			mcpgo.Description("全局 YAML 配置文件路径"),
+		),
+		mcpgo.WithString("config_content",
+			mcpgo.Description("YAML 配置内容（直接传入配置文本，优先级高于 config_path）"),
+		),
+		mcpgo.WithBoolean("use_config_per_book",
+			mcpgo.Description("是否为每本书自动加载同目录下的 YAML 配置文件，默认true"),
+		),
 	)
 
 	srv.AddTool(tool, s.handleBatchConvert)
@@ -214,7 +232,40 @@ func (s *ConverterService) handleConvert(ctx context.Context, req mcpgo.CallTool
 		return nil, err
 	}
 
-	// 应用所有可选参数
+	// 加载 YAML 配置（优先级：config_content > config_path > auto load）
+	var yamlCfg *config.Config
+	if configContent, ok := args["config_content"].(string); ok && configContent != "" {
+		// 优先使用直接传入的配置内容
+		yamlCfg, err = config.LoadFromString(configContent)
+		if err != nil {
+			logger.Warn("failed to load config from content", "error", err)
+		} else {
+			logger.Info("loaded config from content")
+		}
+	} else if configPath, ok := args["config_path"].(string); ok && configPath != "" {
+		// 其次使用指定的配置文件路径
+		yamlCfg, err = config.LoadFromFile(configPath)
+		if err != nil {
+			logger.Warn("failed to load config from path", "path", configPath, "error", err)
+		} else {
+			logger.Info("loaded config from path", "path", configPath)
+		}
+	} else {
+		// 最后尝试自动识别
+		var configPath string
+		var err error
+		yamlCfg, configPath, err = config.AutoLoadForFile(filename)
+		if err == nil && yamlCfg != nil {
+			logger.Info("auto-loaded config", "path", configPath)
+		}
+	}
+
+	// 应用 YAML 配置
+	if yamlCfg != nil {
+		yamlCfg.MergeWithBook(book)
+	}
+
+	// 应用所有可选参数（优先级高于 YAML 配置）
 	s.applyBookParameters(book, args)
 
 	// 执行转换
@@ -297,6 +348,40 @@ func (s *ConverterService) handleBatchConvert(ctx context.Context, req mcpgo.Cal
 	// 获取全局样式参数
 	globalParams := s.extractGlobalParams(args)
 
+	// 加载文件夹级别的通用配置（类似于查找通用封面）
+	folderConfig, folderConfigPath, err := config.LoadFromFolder(folder)
+	if err != nil {
+		logger.Warn("failed to load folder config", "folder", folder, "error", err)
+	} else if folderConfig != nil {
+		logger.Info("loaded folder config", "path", folderConfigPath)
+	}
+
+	// 加载全局 YAML 配置（优先级：config_content > config_path）
+	var globalYamlCfg *config.Config
+	if configContent, ok := args["config_content"].(string); ok && configContent != "" {
+		yamlCfg, err := config.LoadFromString(configContent)
+		if err != nil {
+			logger.Warn("failed to load global config from content", "error", err)
+		} else {
+			globalYamlCfg = yamlCfg
+			logger.Info("loaded global config from content")
+		}
+	} else if configPath, ok := args["config_path"].(string); ok && configPath != "" {
+		yamlCfg, err := config.LoadFromFile(configPath)
+		if err != nil {
+			logger.Warn("failed to load global config from path", "path", configPath, "error", err)
+		} else {
+			globalYamlCfg = yamlCfg
+			logger.Info("loaded global config from path", "path", configPath)
+		}
+	}
+
+	// 是否启用每本书的自动配置加载
+	useConfigPerBook := true
+	if v, ok := args["use_config_per_book"].(bool); ok {
+		useConfigPerBook = v
+	}
+
 	// 批量转换
 	var results []string
 	var successCount, failCount int
@@ -304,8 +389,31 @@ func (s *ConverterService) handleBatchConvert(ctx context.Context, req mcpgo.Cal
 	for _, bookInfo := range books {
 		logger.Info("processing book", "book", bookInfo.Book.Bookname)
 
+		// 应用从文件夹扫描时加载的配置（类似于通用封面的逻辑）
+		if bookInfo.Config != nil {
+			bookInfo.Config.MergeWithBook(bookInfo.Book)
+		}
+
+		// 应用文件夹级别的通用配置
+		if folderConfig != nil {
+			folderConfig.MergeWithBook(bookInfo.Book)
+		}
+
+		// 应用全局 YAML 配置（参数传入的优先级更高）
+		if globalYamlCfg != nil {
+			globalYamlCfg.MergeWithBook(bookInfo.Book)
+		}
+
 		// 应用全局样式参数
 		s.applyGlobalParams(bookInfo.Book, globalParams)
+
+		// 尝试加载每本书同目录的独立配置（优先级最高）
+		if useConfigPerBook {
+			if yamlCfg, cfgPath, err := config.AutoLoadForFile(bookInfo.Book.Filename); err == nil && yamlCfg != nil {
+				yamlCfg.MergeWithBook(bookInfo.Book)
+				logger.Info("loaded config for book", "book", bookInfo.Book.Bookname, "path", cfgPath)
+			}
+		}
 
 		// 执行转换
 		if err := s.convertBook(bookInfo.Book); err != nil {
@@ -347,12 +455,14 @@ type BookInfo struct {
 	CoverPath    string
 	HeaderPath   string
 	HeaderFolder string
+	Config       *config.Config // 该书籍使用的配置
 }
 
 // scanBooks 扫描文件夹获取所有书籍
 // 支持两种模式：
 // 1. 单文件夹模式：所有txt在一个文件夹，资源使用统一命名（cover.jpg, header.png等）
 // 2. 子文件夹模式：每个txt在独立子文件夹，子文件夹内有各自的资源
+// 配置加载规则：优先使用子文件夹配置，其次使用父文件夹配置
 func (s *ConverterService) scanBooks(folder, outputFolder string) []BookInfo {
 	var books []BookInfo
 
@@ -362,15 +472,22 @@ func (s *ConverterService) scanBooks(folder, outputFolder string) []BookInfo {
 		return books
 	}
 
-	// 首先检查是否是"单文件夹多书籍"模式
 	// 查找通用的资源文件（cover.jpg, header.png等）
 	globalResources := s.findGlobalResources(folder)
+
+	// 查找文件夹级别的通用配置（类似于通用封面）
+	globalConfig, globalConfigPath, err := config.LoadFromFolder(folder)
+	if err != nil {
+		logger.Warn("failed to load folder config", "folder", folder, "error", err)
+	} else if globalConfig != nil {
+		logger.Info("loaded folder config", "path", globalConfigPath)
+	}
 
 	// 处理所有txt文件和子文件夹
 	for _, entry := range entries {
 		if entry.IsDir() {
 			// 检查是否是子文件夹模式（子文件夹内有txt文件）
-			subBooks := s.scanSubFolder(filepath.Join(folder, entry.Name()), outputFolder, globalResources)
+			subBooks := s.scanSubFolder(filepath.Join(folder, entry.Name()), outputFolder, globalResources, globalConfig)
 			books = append(books, subBooks...)
 			continue
 		}
@@ -397,6 +514,9 @@ func (s *ConverterService) scanBooks(folder, outputFolder string) []BookInfo {
 		// 优先使用与书名相关的资源，其次使用通用资源
 		info := BookInfo{Book: book}
 		info = s.findResourcesForBook(info, folder, book.Bookname, globalResources)
+
+		// 应用文件夹级别的通用配置
+		info.Config = globalConfig
 
 		// 应用资源路径
 		s.applyBookResources(book, info)
@@ -443,7 +563,8 @@ func (s *ConverterService) findGlobalResources(folder string) map[string]string 
 }
 
 // scanSubFolder 扫描子文件夹（子文件夹模式）
-func (s *ConverterService) scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[string]string) []BookInfo {
+// 配置继承规则：子文件夹配置优先，如果没有则继承父文件夹配置
+func (s *ConverterService) scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[string]string, parentConfig *config.Config) []BookInfo {
 	var books []BookInfo
 
 	entries, err := os.ReadDir(subFolder)
@@ -464,6 +585,14 @@ func (s *ConverterService) scanSubFolder(subFolder, outputFolder string, parentG
 		if parentHeader, ok := parentGlobalResources["header"]; ok {
 			localResources["header"] = parentHeader
 		}
+	}
+
+	// 查找子文件夹的配置，如果没有则继承父文件夹配置
+	localConfig, localConfigPath, err := config.LoadFromFolder(subFolder)
+	if err != nil {
+		logger.Warn("failed to load subfolder config", "folder", subFolder, "error", err)
+	} else if localConfig != nil {
+		logger.Info("loaded subfolder config", "path", localConfigPath)
 	}
 
 	// 查找页眉图片文件夹
@@ -505,6 +634,13 @@ func (s *ConverterService) scanSubFolder(subFolder, outputFolder string, parentG
 			CoverPath:    localResources["cover"],
 			HeaderPath:   localResources["header"],
 			HeaderFolder: headerFolder,
+		}
+
+		// 优先使用子文件夹配置，其次继承父文件夹配置
+		if localConfig != nil {
+			info.Config = localConfig
+		} else {
+			info.Config = parentConfig
 		}
 
 		s.applyBookResources(book, info)

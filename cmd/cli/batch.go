@@ -6,8 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/feewg/kaf-cli/internal/converter"
-	"github.com/feewg/kaf-cli/internal/core"
+	"github.com/feewg/kaf-cli/internal/config"
 	"github.com/feewg/kaf-cli/internal/model"
 )
 
@@ -17,12 +16,14 @@ type BatchBookInfo struct {
 	CoverPath    string
 	HeaderPath   string
 	HeaderFolder string
+	Config       *config.Config // 该书籍使用的配置
 }
 
 // scanBooks 扫描文件夹获取所有书籍
 // 支持两种模式：
 // 1. 单文件夹模式：所有txt在一个文件夹，资源使用统一命名（cover.jpg, header.png等）
 // 2. 子文件夹模式：每个txt在独立子文件夹，子文件夹内有各自的资源
+// 配置加载规则：优先使用子文件夹配置，其次使用父文件夹配置
 func scanBooks(folder, outputFolder string) []BatchBookInfo {
 	var books []BatchBookInfo
 
@@ -32,15 +33,22 @@ func scanBooks(folder, outputFolder string) []BatchBookInfo {
 		return books
 	}
 
-	// 首先检查是否是"单文件夹多书籍"模式
 	// 查找通用的资源文件（cover.jpg, header.png等）
 	globalResources := findGlobalResources(folder)
+
+	// 查找文件夹级别的通用配置（类似于通用封面）
+	globalConfig, globalConfigPath, err := config.LoadFromFolder(folder)
+	if err != nil {
+		// 配置文件不存在或加载失败是正常现象，静默处理
+	} else if globalConfig != nil {
+		fmt.Printf("  📄 加载文件夹配置: %s\n", filepath.Base(globalConfigPath))
+	}
 
 	// 处理所有txt文件和子文件夹
 	for _, entry := range entries {
 		if entry.IsDir() {
 			// 检查是否是子文件夹模式（子文件夹内有txt文件）
-			subBooks := scanSubFolder(filepath.Join(folder, entry.Name()), outputFolder, globalResources)
+			subBooks := scanSubFolder(filepath.Join(folder, entry.Name()), outputFolder, globalResources, globalConfig)
 			books = append(books, subBooks...)
 			continue
 		}
@@ -66,6 +74,9 @@ func scanBooks(folder, outputFolder string) []BatchBookInfo {
 		// 为单文件夹模式的书籍查找资源
 		info := BatchBookInfo{Book: book}
 		info = findResourcesForBook(info, folder, book.Bookname, globalResources)
+
+		// 应用文件夹级别的通用配置
+		info.Config = globalConfig
 
 		// 应用资源路径
 		applyBookResources(book, info)
@@ -112,7 +123,8 @@ func findGlobalResources(folder string) map[string]string {
 }
 
 // scanSubFolder 扫描子文件夹（子文件夹模式）
-func scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[string]string) []BatchBookInfo {
+// 配置继承规则：子文件夹配置优先，如果没有则继承父文件夹配置
+func scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[string]string, parentConfig *config.Config) []BatchBookInfo {
 	var books []BatchBookInfo
 
 	entries, err := os.ReadDir(subFolder)
@@ -133,6 +145,14 @@ func scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[str
 		if parentHeader, ok := parentGlobalResources["header"]; ok {
 			localResources["header"] = parentHeader
 		}
+	}
+
+	// 查找子文件夹的配置，如果没有则继承父文件夹配置
+	localConfig, localConfigPath, err := config.LoadFromFolder(subFolder)
+	if err != nil {
+		// 配置文件不存在或加载失败是正常现象，静默处理
+	} else if localConfig != nil {
+		fmt.Printf("  📄 加载子文件夹配置: %s\n", filepath.Base(localConfigPath))
 	}
 
 	// 查找页眉图片文件夹
@@ -174,6 +194,13 @@ func scanSubFolder(subFolder, outputFolder string, parentGlobalResources map[str
 			CoverPath:    localResources["cover"],
 			HeaderPath:   localResources["header"],
 			HeaderFolder: headerFolder,
+		}
+
+		// 优先使用子文件夹配置，其次继承父文件夹配置
+		if localConfig != nil {
+			info.Config = localConfig
+		} else {
+			info.Config = parentConfig
 		}
 
 		applyBookResources(book, info)
@@ -307,22 +334,4 @@ func applyBookResources(book *model.Book, info BatchBookInfo) {
 		book.ChapterHeaderImageFolder = info.HeaderFolder
 		book.ChapterHeaderImageMode = "folder"
 	}
-}
-
-// convertBook 执行单本书的转换
-func convertBook(book *model.Book, version string) error {
-	if err := core.Check(book, version); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
-	if err := core.Parse(book); err != nil {
-		return fmt.Errorf("parsing failed: %w", err)
-	}
-
-	conv := converter.Dispatcher{Book: book}
-	if err := conv.Convert(); err != nil {
-		return fmt.Errorf("conversion failed: %w", err)
-	}
-
-	return nil
 }
